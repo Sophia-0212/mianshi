@@ -3,7 +3,8 @@ import path from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { buildTree, naturalCompare } from './md-tree'
 
-const FIXTURE_ROOT = path.join(__dirname, '__fixtures__', 'root')
+const FIXTURES_DIR = path.join(__dirname, '__fixtures__')
+const FIXTURE_ROOT = path.join(FIXTURES_DIR, 'root')
 
 beforeAll(() => {
   fs.mkdirSync(path.join(FIXTURE_ROOT, '前端面试', '汇总'), { recursive: true })
@@ -18,7 +19,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true })
+  fs.rmSync(FIXTURES_DIR, { recursive: true, force: true })
 })
 
 describe('naturalCompare', () => {
