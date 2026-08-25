@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it'
 import { codeToHtml } from 'shiki'
+import { extractToc } from './toc'
 
 const md = new MarkdownIt({ html: false, linkify: true })
 
@@ -39,6 +40,15 @@ export async function renderMarkdown(source: string): Promise<string> {
     }
     html = html.replace(`<div class="shiki-placeholder" data-key="${key}"></div>`, highlighted)
   }
+
+  // per-call 本地状态：与 extractToc 的序号方案对齐，按出现顺序给 h1~h3 标签注入锚点 id
+  const toc = extractToc(source)
+  let headingCursor = 0
+  html = html.replace(/<(h[1-3])>/g, (full, tag) => {
+    const item = toc[headingCursor]
+    headingCursor++
+    return item ? `<${tag} id="${item.id}">` : full
+  })
 
   return html
 }

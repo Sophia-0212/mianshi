@@ -68,4 +68,10 @@ describe('renderMarkdown', () => {
     expect(html).toContain('foo')
     expect(html).not.toContain('shiki-placeholder')
   })
+
+  it('h1~h3 标题被注入与 extractToc 一致的 id', async () => {
+    const html = await renderMarkdown('# 标题A\n\n## 标题B')
+    expect(html).toContain('<h1 id="heading-0">')
+    expect(html).toContain('<h2 id="heading-1">')
+  })
 })
