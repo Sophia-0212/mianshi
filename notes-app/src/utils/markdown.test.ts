@@ -14,4 +14,58 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<pre')
     expect(html).toContain('shiki')
   })
+
+  it('空字符串输入不报错，且不残留 shiki 占位符', async () => {
+    const html = await renderMarkdown('')
+    expect(html).not.toContain('shiki-placeholder')
+  })
+
+  it('不含代码块的纯文本渲染正常，不受占位符逻辑影响', async () => {
+    const html = await renderMarkdown('这是一段纯文本，没有代码块。')
+    expect(html).toContain('这是一段纯文本，没有代码块。')
+    expect(html).not.toContain('shiki-placeholder')
+    expect(html).not.toContain('<pre')
+  })
+
+  it('单次调用内多个代码块各自正确高亮，不互相串位', async () => {
+    const source = [
+      '```js',
+      'const jsOnlyToken = 111',
+      '```',
+      '',
+      '```python',
+      'py_only_token = 222',
+      '```',
+    ].join('\n')
+
+    const html = await renderMarkdown(source)
+
+    expect(html).not.toContain('shiki-placeholder')
+
+    // shiki 会把代码拆分成逐 token 的 <span>，所以不能整段字符串匹配，
+    // 改为验证每段代码各自的关键字面量片段都出现，且顺序与源码一致（未被对方覆盖或错位）
+    const jsIndex = html.indexOf('jsOnlyToken')
+    const jsNumIndex = html.indexOf('111')
+    const pyIndex = html.indexOf('py_only_token')
+    const pyNumIndex = html.indexOf('222')
+
+    expect(jsIndex).toBeGreaterThan(-1)
+    expect(jsNumIndex).toBeGreaterThan(-1)
+    expect(pyIndex).toBeGreaterThan(-1)
+    expect(pyNumIndex).toBeGreaterThan(-1)
+
+    // js 代码块的内容应整体出现在 python 代码块之前，证明两个占位符各自替换到了正确位置
+    expect(jsIndex).toBeLessThan(pyIndex)
+    expect(jsNumIndex).toBeLessThan(pyIndex)
+    // 各代码块内部关键字面量不应串到对方代码块的高亮结果里
+    expect(html.indexOf('jsOnlyToken', pyIndex)).toBe(-1)
+    expect(pyIndex).toBeGreaterThan(jsNumIndex)
+  })
+
+  it('未知语言标识符触发降级路径，仍产出 <pre 而不抛错', async () => {
+    const html = await renderMarkdown('```notalang\nfoo\n```')
+    expect(html).toContain('<pre')
+    expect(html).toContain('foo')
+    expect(html).not.toContain('shiki-placeholder')
+  })
 })
