@@ -10,13 +10,24 @@ const results = ref<SearchResult[]>([])
 let index: ReturnType<typeof buildIndex> | null = null
 
 async function initIndex() {
-  const docs = await Promise.all(
+  const settled = await Promise.allSettled(
     files.map(async f => {
       const res = await fetch('/' + f.path.split('/').map(encodeURIComponent).join('/'))
       const content = res.ok ? await res.text() : ''
       return { path: f.path, name: f.name, content }
     })
   )
+
+  // 用 allSettled 而不是 all：任意文件 fetch 因网络问题抛异常时，
+  // 不能让其他已成功的文件也被整体丢弃，否则 index 永远是 null，搜索会静默失效。
+  // fetch 失败的文件降级为空 content（仍可通过标题搜到），并打日志方便排查。
+  const docs = settled.map((result, i) => {
+    if (result.status === 'fulfilled') return result.value
+    const f = files[i]
+    console.warn(`[SearchBox] 拉取文件失败，已降级为空内容: ${f.path}`, result.reason)
+    return { path: f.path, name: f.name, content: '' }
+  })
+
   index = buildIndex(docs)
 }
 
@@ -31,7 +42,13 @@ function goTo(path: string) {
   router.push('/' + path.split('/').map(encodeURIComponent).join('/'))
 }
 
-onMounted(initIndex)
+onMounted(() => {
+  // 兜底：allSettled 本身不会 reject，但 buildIndex 或其他同步逻辑仍可能抛错，
+  // 不加 .catch 的话会变成 unhandled rejection。
+  initIndex().catch(err => {
+    console.error('[SearchBox] 初始化搜索索引失败', err)
+  })
+})
 </script>
 
 <template>

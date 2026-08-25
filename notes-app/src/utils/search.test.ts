@@ -16,4 +16,15 @@ describe('search', () => {
     const index = buildIndex([{ path: 'a.md', name: 'a', content: '内容' }])
     expect(search(index, '不存在的关键字xyz')).toEqual([])
   })
+
+  it('标题命中优先于正文命中：即使正文命中次数更多，标题命中的文档仍排在前面', async () => {
+    const index = buildIndex([
+      // 文档A：仅在 content 里多次出现关键字（正文强命中，标题不含关键字）
+      { path: 'a/weak-title.md', name: '异步编程指南', content: 'Vue Vue Vue Vue Vue 组件化开发实践' },
+      // 文档B：关键字只在 name 里出现一次（标题弱命中，正文完全不含关键字）
+      { path: 'b/vue-basics.md', name: 'Vue入门', content: '响应式系统与组件通信机制' },
+    ])
+    const results = search(index, 'Vue')
+    expect(results.map(r => r.path)).toEqual(['b/vue-basics.md', 'a/weak-title.md'])
+  })
 })
