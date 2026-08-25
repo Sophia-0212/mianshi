@@ -11,7 +11,7 @@ export interface MdTreeNode {
   children?: MdTreeNode[]
 }
 
-const IGNORE_DIRS = new Set(['node_modules', '.git', 'notes-app'])
+const IGNORE_DIRS = new Set(['node_modules', '.git', 'notes-app', 'docs'])
 
 export function naturalCompare(a: string, b: string): number {
   const re = /(\d+)|(\D+)/g
@@ -114,6 +114,12 @@ export function mdTreePlugin(): Plugin {
       }
     },
     configureServer(server) {
+      // Vite's default watcher is rooted at the dev server's `root`
+      // (notes-app/), so it never sees changes under sibling repo-root
+      // directories (e.g. 前端面试/). Explicitly widen the watch scope to
+      // the repo root so edits to notes outside notes-app/ also trigger HMR.
+      server.watcher.add(rootDir)
+
       server.watcher.on('all', (_event, changedPath) => {
         if (changedPath.endsWith('.md')) {
           const mod = server.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID)

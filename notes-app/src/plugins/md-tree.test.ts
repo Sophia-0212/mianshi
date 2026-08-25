@@ -10,12 +10,14 @@ beforeAll(() => {
   fs.mkdirSync(path.join(FIXTURE_ROOT, '前端面试', '汇总'), { recursive: true })
   fs.mkdirSync(path.join(FIXTURE_ROOT, 'node_modules'), { recursive: true })
   fs.mkdirSync(path.join(FIXTURE_ROOT, '.git'), { recursive: true })
+  fs.mkdirSync(path.join(FIXTURE_ROOT, 'docs', 'superpowers', 'plans'), { recursive: true })
 
   fs.writeFileSync(path.join(FIXTURE_ROOT, '前端面试', '汇总', '1.JS基础面试题.md'), '')
   fs.writeFileSync(path.join(FIXTURE_ROOT, '前端面试', '汇总', '2.浏览器原理与安全面试题.md'), '')
   fs.writeFileSync(path.join(FIXTURE_ROOT, 'node_modules', 'foo.md'), '')
   fs.writeFileSync(path.join(FIXTURE_ROOT, '.git', 'HEAD'), '')
   fs.writeFileSync(path.join(FIXTURE_ROOT, '.hidden.md'), '')
+  fs.writeFileSync(path.join(FIXTURE_ROOT, 'docs', 'superpowers', 'plans', 'task8.md'), '')
 })
 
 afterAll(() => {
@@ -44,7 +46,7 @@ describe('buildTree', () => {
     expect(tree.every(n => n.type === 'dir')).toBe(true)
   })
 
-  it('跳过 node_modules、.git、隐藏文件', () => {
+  it('跳过 node_modules、.git、隐藏文件、docs', () => {
     const tree = buildTree(FIXTURE_ROOT)
     const flatten = (nodes: any[]): string[] =>
       nodes.flatMap(n => [n.path, ...(n.children ? flatten(n.children) : [])])
@@ -52,5 +54,6 @@ describe('buildTree', () => {
     expect(paths.some(p => p.includes('node_modules'))).toBe(false)
     expect(paths.some(p => p.includes('.git'))).toBe(false)
     expect(paths.some(p => p.includes('/.'))).toBe(false)
+    expect(paths.some(p => p.includes('docs'))).toBe(false)
   })
 })
