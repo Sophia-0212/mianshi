@@ -93,5 +93,15 @@ export default defineConfig({
     fs: {
       allow: ['..'],
     },
+    proxy: {
+      '/api/translate': {
+        target: 'https://fanyi.youdao.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/translate/, '/translate_o?smartresult=dict&smartresult=rule'),
+        headers: {
+          Referer: 'https://fanyi.youdao.com/',
+        },
+      },
+    },
   },
 })
