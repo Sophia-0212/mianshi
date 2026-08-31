@@ -1,16 +1,14 @@
 import { Document } from 'flexsearch'
 import type { EnrichedDocumentSearchResults } from 'flexsearch'
+import type { Chunk } from './chunk'
 
-export interface SearchDoc {
-  [key: string]: string
-  path: string
-  name: string
-  content: string
-}
+export type SearchDoc = Chunk
 
 export interface SearchResult {
   path: string
   name: string
+  heading: string
+  snippet: string
 }
 
 type SearchIndex = Document<SearchDoc, false>
@@ -18,9 +16,9 @@ type SearchIndex = Document<SearchDoc, false>
 export function buildIndex(docs: SearchDoc[]): SearchIndex {
   const index = new Document<SearchDoc, false>({
     document: {
-      id: 'path',
-      index: ['name', 'content'],
-      store: ['name', 'path'],
+      id: 'id',
+      index: ['name', 'heading', 'text'],
+      store: ['name', 'path', 'heading', 'text'],
     },
     tokenize: 'forward',
   })
@@ -32,28 +30,63 @@ export function buildIndex(docs: SearchDoc[]): SearchIndex {
   return index
 }
 
+function makeSnippet(text: string, max = 60): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? flat.slice(0, max) + '…' : flat
+}
+
+function countOccurrences(text: string, query: string): number {
+  const q = query.trim().toLowerCase()
+  if (!q) return 0
+  const t = text.toLowerCase()
+  let count = 0
+  let pos = 0
+  while ((pos = t.indexOf(q, pos)) !== -1) {
+    count++
+    pos += q.length
+  }
+  return count
+}
+
 export function search(index: SearchIndex, query: string): SearchResult[] {
   if (!query.trim()) return []
 
-  // 有意为之：不使用 merge:true，按字段声明顺序（index: ['name', 'content']）
-  // 依次收集命中，即标题（name）命中的文档整体排在正文（content）命中的文档之前。
-  // 对笔记搜索场景这是合理的默认排序——标题匹配通常比正文偶然出现关键字更相关。
-  // 见 search.test.ts 中"标题命中排在正文命中之前"的用例，将此行为锁定为已验证行为。
   const results = index.search(query, {
     enrich: true,
-    limit: 20,
+    limit: 30,
   }) as EnrichedDocumentSearchResults<SearchDoc>
 
-  const seen = new Map<string, SearchResult>()
+  // 去重键用 path+heading：同一文件的不同段落仍可分别出现在结果里，
+  // 但同一段落（同 heading 下）多次命中只保留一条，避免结果列表被同段落刷屏。
+  // 排序规则：标题（name）命中整体排在正文（text/heading）命中之前；
+  // 同一优先级内，按关键词在该段落文本中出现的次数降序排列。
+  const seen = new Map<string, { result: SearchResult; titleHit: boolean; count: number }>()
 
   for (const fieldResult of results) {
+    const isTitleField = fieldResult.field === 'name'
     for (const item of fieldResult.result) {
       const doc = item.doc
-      if (doc && !seen.has(doc.path)) {
-        seen.set(doc.path, { path: doc.path, name: doc.name })
+      if (!doc) continue
+      const key = doc.path + '::' + doc.heading
+      const existing = seen.get(key)
+      if (!existing) {
+        const count = countOccurrences(doc.text, query) + countOccurrences(doc.name, query)
+        seen.set(key, {
+          result: { path: doc.path, name: doc.name, heading: doc.heading, snippet: makeSnippet(doc.text) },
+          titleHit: isTitleField,
+          count,
+        })
+      } else if (isTitleField) {
+        existing.titleHit = true
       }
     }
   }
 
   return Array.from(seen.values())
+    .sort((a, b) => {
+      if (a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1
+      return b.count - a.count
+    })
+    .slice(0, 20)
+    .map(x => x.result)
 }
