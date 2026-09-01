@@ -1,7 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { mdTreePlugin } from './src/plugins/md-tree'
 
@@ -87,11 +87,105 @@ function serveRepoMdFiles(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [vue(), mdTreePlugin(), serveRepoMdFiles()],
-  server: {
-    fs: {
-      allow: ['..'],
+function translateProxy(apiKey: string | undefined): Plugin {
+  return {
+    name: 'translate-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/translate', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405
+          res.end('Method Not Allowed')
+          return
+        }
+
+        let body = ''
+        req.on('data', (chunk) => {
+          body += chunk
+        })
+        req.on('end', () => {
+          void handleTranslateRequest(body, apiKey, res)
+        })
+      })
     },
-  },
+  }
+}
+
+async function handleTranslateRequest(
+  rawBody: string,
+  apiKey: string | undefined,
+  res: import('node:http').ServerResponse,
+) {
+  if (!apiKey) {
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: '服务端未配置 OPENAI_API_KEY' }))
+    return
+  }
+
+  let text: string
+  try {
+    const parsed = JSON.parse(rawBody) as { text?: unknown }
+    if (typeof parsed.text !== 'string' || !parsed.text.trim()) {
+      throw new Error('empty text')
+    }
+    text = parsed.text
+  } catch {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: '请求体需为 { text: string }' }))
+    return
+  }
+
+  try {
+    const upstream = await fetch('https://oneapi-comate.baidu-int.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.5',
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content: '你是专业翻译。把用户输入的中文段落直译成英文，只输出英文译文本身，不要加任何解释、引号或前缀。',
+          },
+          { role: 'user', content: text },
+        ],
+      }),
+    })
+
+    if (!upstream.ok) {
+      res.statusCode = 502
+      res.end(JSON.stringify({ error: `上游网关返回 HTTP ${upstream.status}` }))
+      return
+    }
+
+    const data = (await upstream.json()) as {
+      choices?: { message?: { content?: string } }[]
+    }
+    const translation = data.choices?.[0]?.message?.content?.trim()
+    if (!translation) {
+      res.statusCode = 502
+      res.end(JSON.stringify({ error: '上游网关返回内容为空' }))
+      return
+    }
+
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ translation }))
+  } catch (err) {
+    res.statusCode = 502
+    res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, currentDir, '')
+  return {
+    plugins: [vue(), mdTreePlugin(), serveRepoMdFiles(), translateProxy(env.OPENAI_API_KEY)],
+    server: {
+      fs: {
+        allow: ['..'],
+      },
+    },
+  }
 })
