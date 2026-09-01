@@ -19,11 +19,13 @@ notes-app 中的笔记（.md 文件）目前只有中文。目标：不新增/�
 export async function translateText(text: string): Promise<string>
 ```
 
-- 内部实现调用有道翻译网页版接口（`fanyi.youdao.com/translate_o`，免费、无需 key，国内网络直连稳定）
-- 该接口为非官方逆向接口，未来可能失效或增加签名校验。因此把所有请求细节（URL、参数、签名、响应解析）封装在这一个函数内部，其余代码只依赖 `translateText` 这一签名。换源（自建代理转发到其他翻译服务）只需改这一个文件。
-- 浏览器端不能直接跨域请求该接口，需要经过代理：
-  - **开发环境**：`vite.config.ts` 增加 `server.proxy`，把 `/api/translate` 转发到 `https://fanyi.youdao.com/translate_o`
-  - **生产环境**：需要一个轻量后端/边缘函数转发（因为是纯前端 SPA 部署，生产环境没有 Vite dev server）。本迭代先支持 dev 环境；生产部署方式（Vercel/Netlify serverless function 或自建反代）留到实际需要部署时再定，不在本次实现范围内阻塞。
+- 内部实现：调用百度内部 Ducc 网关的 OpenAI 兼容 Chat Completions 接口（`https://oneapi-comate.baidu-int.com/v1/chat/completions`，模型 `gpt-5.5`），用一句固定 system prompt 让模型把输入的中文段落直译成英文，只返回译文本身
+  - 免费无 key 的第三方翻译接口（有道网页版、Google 未官方端点、LibreTranslate 公共实例）实测均不可用：有道旧接口 `translate_o` 需要动态签名（签名密钥从 `dict.youdao.com/webtranslate/key` 动态获取，非静态密钥），新版 `webtranslate` 接口同样要先请求密钥再签名；连不上 Google；LibreTranslate 公共实例普遍被 Cloudflare 拦截或已下线。因此改用已确认可用、稳定的内部网关
+  - 该实现细节（用 LLM 做翻译、prompt 措辞、请求/响应格式）全部封装在 `translateText` 内部，其余代码只依赖这一个函数签名。以后如果要换成专用翻译 API，只需改这一个文件
+- 浏览器端不能直接跨域请求该网关（且不能把 API Key 暴露到前端代码里），需要经过代理转发并在服务端注入 Key：
+  - **开发环境**：`vite.config.ts` 增加一个自定义 Vite 插件中间件，处理 `POST /api/translate`：读取请求体里的 `{ text }`，服务端（Node 进程内，Key 不下发到浏览器）用 `OPENAI_API_KEY` 环境变量拼装请求转发给 Ducc 网关，把模型返回的译文包成 `{ translation: string }` 返回给前端
+  - `OPENAI_API_KEY` 从 `notes-app/.env`（不提交 git，加入 `.gitignore`）读取，Vite 默认支持 `.env` 加载
+  - **生产环境**：需要一个轻量后端/边缘函数转发（因为是纯前端 SPA 部署，生产环境没有 Vite dev server）。本迭代先支持 dev 环境；生产部署方式留到实际需要部署时再定，不在本次实现范围内阻塞
 
 ### 2. Markdown 渲染阶段注入按钮标记 — `src/utils/markdown.ts`
 
@@ -60,21 +62,22 @@ export async function translateText(text: string): Promise<string>
   → 查 localStorage 缓存
       → 命中: 直接插入/切换显示
       → 未命中: translateText(paraTexts[index])
-                  → 走 vite proxy → 有道接口
+                  → POST /api/translate (走 vite 中间件)
+                  → 中间件用 OPENAI_API_KEY 转发到 Ducc 网关 (gpt-5.5)
                   → 成功: 写缓存 + 插入显示
                   → 失败: 按钮显示错误态，允许重试
 ```
 
 ## 错误处理
 
-- 网络失败/接口非 200/响应格式不符预期：`translateText` 抛出错误，组件层捕获后仅将对应按钮标红，不影响页面其他部分
-- 有道接口若返回签名校验失败等（接口本身可能变化），同样归为翻译失败，不做特殊探测逻辑（YAGNI，等真的出问题再针对性处理）
+- 网络失败/HTTP 非 200/响应格式不符预期/环境变量未配置：`translateText` 抛出错误，组件层捕获后仅将对应按钮标红，不影响页面其他部分
+- Ducc 网关鉴权失败或模型调用出错，同样归为翻译失败，不做特殊探测逻辑（YAGNI，等真的出问题再针对性处理）
 
 ## 测试
 
 - `src/utils/markdown.test.ts` 补充用例：验证 p/li/blockquote 被正确注入 `data-para-index` 递增序号按钮，且 `paraTexts` 与按钮序号一一对应
-- `src/utils/translate.ts` 补充单测：mock fetch，验证请求参数拼装、成功/失败路径的返回值和抛错行为
-- 不做端到端测试真实调用有道接口（网络依赖，不稳定）
+- `src/utils/translate.ts` 补充单测：mock fetch，验证请求体格式、成功/失败路径的返回值和抛错行为
+- 不做端到端测试真实调用 Ducc 网关（网络依赖、消耗真实调用额度，不稳定）
 
 ## 不做的事
 

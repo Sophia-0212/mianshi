@@ -2,66 +2,166 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 notes-app 每个段落（p/li/blockquote）末尾加一个小翻译按钮，点击后实时调用有道翻译接口把该段中文翻成英文并插入到段落下方，再次点击隐藏；结果按段落内容 hash 缓存到 localStorage。
+**Goal:** 给 notes-app 每个段落（p/li/blockquote）末尾加一个小翻译按钮，点击后实时调用百度内部 Ducc 网关（OpenAI 兼容接口，模型 gpt-5.5）把该段中文翻成英文并插入到段落下方，再次点击隐藏；结果按段落内容 hash 缓存到 localStorage。
 
-**Architecture:** `translate.ts` 封装对有道翻译接口的调用（经 vite dev proxy 转发，规避浏览器跨域）；`markdown.ts` 渲染阶段给 p/li/blockquote 打上稳定序号并注入按钮标记，同时把每段的纯文本抽出来一起返回；`MarkdownView.vue` 用事件代理监听按钮点击，查 localStorage 缓存 → 未命中调 `translateText` → 直接操作真实 DOM 插入/切换英文译文。
+**Architecture:** `translate.ts` 封装对 `/api/translate` 的调用；vite 插件在开发服务器内加一个中间件，接收 `/api/translate` 请求，服务端用 `OPENAI_API_KEY` 环境变量转发给 Ducc 网关做翻译（Key 不下发到浏览器）；`markdown.ts` 渲染阶段给 p/li/blockquote 打上稳定序号并注入按钮标记，同时把每段的纯文本抽出来一起返回；`MarkdownView.vue` 用事件代理监听按钮点击，查 localStorage 缓存 → 未命中调 `translateText` → 直接操作真实 DOM 插入/切换英文译文。
 
-**Tech Stack:** Vue 3 + TypeScript, markdown-it, vitest, Vite dev server proxy
+**Tech Stack:** Vue 3 + TypeScript, markdown-it, vitest, Vite dev server middleware, OpenAI 兼容 Chat Completions API (Ducc 网关)
 
 ---
 
-## Task 1: Vite dev proxy 转发有道翻译接口
+## Task 1: Vite 中间件转发翻译请求到 Ducc 网关
 
 **Files:**
 - Modify: `notes-app/vite.config.ts`
+- Create: `notes-app/.env`（不提交 git）
+- Modify: `notes-app/.gitignore`
 
-- [ ] **Step 1: 在 `defineConfig` 里加 `server.proxy` 配置**
+- [ ] **Step 1: 确认 `.env` 已被忽略，创建 `.env`**
 
-在 `notes-app/vite.config.ts` 里，`server` 字段目前是：
+Read `notes-app/.gitignore`，若没有 `.env` 规则，用 Edit 在文件末尾追加一行：
+
+```
+.env
+```
+
+创建 `notes-app/.env`（此文件不会被提交，仅本机使用）：
+
+```
+OPENAI_API_KEY=sk-d4gFnBnLNhhCmxHf5f2d5cF54dB34cF5AdD85c2f59E04e74
+```
+
+- [ ] **Step 2: 在 `vite.config.ts` 里新增翻译中间件插件**
+
+Read `notes-app/vite.config.ts` 当前完整内容。在 `serveRepoMdFiles` 函数定义之后（`export default defineConfig` 之前）新增一个函数：
 
 ```ts
-  server: {
-    fs: {
-      allow: ['..'],
+function translateProxy(): Plugin {
+  return {
+    name: 'translate-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/translate', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405
+          res.end('Method Not Allowed')
+          return
+        }
+
+        let body = ''
+        req.on('data', (chunk) => {
+          body += chunk
+        })
+        req.on('end', () => {
+          void handleTranslateRequest(body, res)
+        })
+      })
     },
-  },
+  }
+}
+
+async function handleTranslateRequest(rawBody: string, res: import('node:http').ServerResponse) {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    res.statusCode = 500
+    res.end(JSON.stringify({ error: '服务端未配置 OPENAI_API_KEY' }))
+    return
+  }
+
+  let text: string
+  try {
+    const parsed = JSON.parse(rawBody) as { text?: unknown }
+    if (typeof parsed.text !== 'string' || !parsed.text.trim()) {
+      throw new Error('empty text')
+    }
+    text = parsed.text
+  } catch {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: '请求体需为 { text: string }' }))
+    return
+  }
+
+  try {
+    const upstream = await fetch('https://oneapi-comate.baidu-int.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.5',
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content: '你是专业翻译。把用户输入的中文段落直译成英文，只输出英文译文本身，不要加任何解释、引号或前缀。',
+          },
+          { role: 'user', content: text },
+        ],
+      }),
+    })
+
+    if (!upstream.ok) {
+      res.statusCode = 502
+      res.end(JSON.stringify({ error: `上游网关返回 HTTP ${upstream.status}` }))
+      return
+    }
+
+    const data = (await upstream.json()) as {
+      choices?: { message?: { content?: string } }[]
+    }
+    const translation = data.choices?.[0]?.message?.content?.trim()
+    if (!translation) {
+      res.statusCode = 502
+      res.end(JSON.stringify({ error: '上游网关返回内容为空' }))
+      return
+    }
+
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ translation }))
+  } catch (err) {
+    res.statusCode = 502
+    res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+  }
+}
+```
+
+然后把 `plugins` 数组：
+
+```ts
+  plugins: [vue(), mdTreePlugin(), serveRepoMdFiles()],
 ```
 
 改成：
 
 ```ts
-  server: {
-    fs: {
-      allow: ['..'],
-    },
-    proxy: {
-      '/api/translate': {
-        target: 'https://fanyi.youdao.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/translate/, '/translate_o?smartresult=dict&smartresult=rule'),
-        headers: {
-          Referer: 'https://fanyi.youdao.com/',
-        },
-      },
-    },
-  },
+  plugins: [vue(), mdTreePlugin(), serveRepoMdFiles(), translateProxy()],
 ```
 
-- [ ] **Step 2: 手动验证代理生效**
+- [ ] **Step 3: 手动验证中间件生效**
 
 Run: `cd notes-app && npm run dev`
 
-浏览器打开开发服务器地址后，另开一个终端执行：
+另开终端执行：
 
 ```bash
 curl -s -X POST 'http://localhost:5173/api/translate' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data 'i=你好&from=AUTO&to=AUTO&smartresult=dict&client=fanyideskweb&doctype=json&version=2.1&keyfrom=fanyi.web'
+  -H 'Content-Type: application/json' \
+  -d '{"text":"你好，世界"}'
 ```
 
-Expected: 返回一段 JSON（可能因缺少 `sign`/`salt` 参数被有道拒绝返回错误 JSON，但只要不是网络层错误/超时/HTML 错误页，说明代理转发本身工作正常）。具体参数拼装留给 Task 2 实现并在那里真正验证翻译能否成功。
+Expected: 返回 `{"translation":"..."}`，英文内容大意为 "Hello, world"。如果返回 500/502 或 `error` 字段，先检查 `.env` 里的 `OPENAI_API_KEY` 是否正确加载（Vite 需要重启才能读取新写入的 `.env`），再检查网络能否访问 `oneapi-comate.baidu-int.com`（该网关是百度内网地址，需在可访问该内网的环境下运行）。如果确认排查后仍失败，停下来告知用户，不要继续凑合往下实现。
 
-停掉 dev server（Ctrl+C）。
+停掉 dev server。
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd /Users/lixiaofei05/Desktop/ms
+git add notes-app/vite.config.ts notes-app/.gitignore
+git commit -m "feat: 新增翻译请求转发中间件，接入Ducc网关"
+```
+
+（`.env` 本身不会被 `git add` 提交，因为已加入 `.gitignore`。）
 
 ## Task 2: `translate.ts` — 翻译服务封装
 
@@ -69,18 +169,18 @@ Expected: 返回一段 JSON（可能因缺少 `sign`/`salt` 参数被有道拒�
 - Create: `notes-app/src/utils/translate.ts`
 - Test: `notes-app/src/utils/translate.test.ts`
 
-- [ ] **Step 1: 写失败测试 — 成功路径解析有道响应**
+- [ ] **Step 1: 写失败测试 — 成功路径解析网关响应**
 
-有道 `translate_o` 接口返回形如：
+`/api/translate` 中间件返回形如：
 
 ```json
-{"errorCode":0,"translateResult":[[{"src":"你好","tgt":"Hello"}]]}
+{"translation":"Hello, world"}
 ```
 
 创建 `notes-app/src/utils/translate.test.ts`：
 
 ```ts
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { translateText } from './translate'
 
 describe('translateText', () => {
@@ -90,70 +190,48 @@ describe('translateText', () => {
     global.fetch = originalFetch
   })
 
-  it('成功时返回拼接后的英文译文', async () => {
+  it('成功时返回译文', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        errorCode: 0,
-        translateResult: [[{ src: '你好，世界', tgt: 'Hello, world' }]],
-      }),
+      json: async () => ({ translation: 'Hello, world' }),
     }) as unknown as typeof fetch
 
     const result = await translateText('你好，世界')
     expect(result).toBe('Hello, world')
   })
 
-  it('多个分句时按顺序拼接为一段', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        errorCode: 0,
-        translateResult: [
-          [{ src: '第一句。', tgt: 'First sentence.' }],
-          [{ src: '第二句。', tgt: 'Second sentence.' }],
-        ],
-      }),
-    }) as unknown as typeof fetch
-
-    const result = await translateText('第一句。第二句。')
-    expect(result).toBe('First sentence. Second sentence.')
-  })
-
   it('HTTP 响应非 ok 时抛出错误', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
+      json: async () => ({ error: '服务端未配置 OPENAI_API_KEY' }),
+    }) as unknown as typeof fetch
+
+    await expect(translateText('你好')).rejects.toThrow()
+  })
+
+  it('响应体缺少 translation 字段时抛出错误', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: async () => ({}),
     }) as unknown as typeof fetch
 
     await expect(translateText('你好')).rejects.toThrow()
   })
 
-  it('errorCode 非 0 时抛出错误', async () => {
+  it('translation 为空字符串时抛出错误', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ errorCode: 50, translateResult: null }),
+      json: async () => ({ translation: '' }),
     }) as unknown as typeof fetch
 
     await expect(translateText('你好')).rejects.toThrow()
   })
 
-  it('translateResult 为空数组时抛出错误', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ errorCode: 0, translateResult: [] }),
-    }) as unknown as typeof fetch
-
-    await expect(translateText('你好')).rejects.toThrow()
-  })
-
-  it('请求体里包含待翻译文本', async () => {
+  it('请求体里包含待翻译文本，走POST + JSON', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        errorCode: 0,
-        translateResult: [[{ src: '测试', tgt: 'Test' }]],
-      }),
+      json: async () => ({ translation: 'Test' }),
     })
     global.fetch = fetchMock as unknown as typeof fetch
 
@@ -163,7 +241,8 @@ describe('translateText', () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/translate')
     expect(init.method).toBe('POST')
-    expect(String(init.body)).toContain(encodeURIComponent('测试'))
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' })
+    expect(JSON.parse(init.body)).toEqual({ text: '测试' })
   })
 })
 ```
@@ -178,48 +257,36 @@ Expected: FAIL，报错 `Failed to resolve import "./translate"` 或类似（模
 创建 `notes-app/src/utils/translate.ts`：
 
 ```ts
-interface YoudaoTranslateResult {
-  errorCode: number
-  translateResult?: { src: string; tgt: string }[][] | null
+interface TranslateResponse {
+  translation?: string
+  error?: string
 }
 
 export async function translateText(text: string): Promise<string> {
-  const body = new URLSearchParams({
-    i: text,
-    from: 'AUTO',
-    to: 'AUTO',
-    smartresult: 'dict',
-    client: 'fanyideskweb',
-    doctype: 'json',
-    version: '2.1',
-    keyfrom: 'fanyi.web',
-    action: 'FY_BY_REALTIME',
-  })
-
   const res = await fetch('/api/translate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
   })
 
+  const data = (await res.json()) as TranslateResponse
+
   if (!res.ok) {
-    throw new Error(`翻译请求失败: HTTP ${res.status}`)
+    throw new Error(data.error ?? `翻译请求失败: HTTP ${res.status}`)
   }
 
-  const data = (await res.json()) as YoudaoTranslateResult
-
-  if (data.errorCode !== 0 || !data.translateResult || data.translateResult.length === 0) {
-    throw new Error(`翻译接口返回错误: errorCode=${data.errorCode}`)
+  if (!data.translation) {
+    throw new Error('翻译接口返回内容为空')
   }
 
-  return data.translateResult.map((sentence) => sentence.map((s) => s.tgt).join('')).join(' ')
+  return data.translation
 }
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `cd notes-app && npx vitest run src/utils/translate.test.ts`
-Expected: 6 个测试全部 PASS
+Expected: 5 个测试全部 PASS
 
 - [ ] **Step 5: 真实调用验证一次（手动，非自动化测试）**
 
@@ -228,12 +295,12 @@ Run: `cd notes-app && npm run dev`，浏览器打开页面，在浏览器 consol
 ```js
 fetch('/api/translate', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({ i: '你好，世界', from: 'AUTO', to: 'AUTO', smartresult: 'dict', client: 'fanyideskweb', doctype: 'json', version: '2.1', keyfrom: 'fanyi.web', action: 'FY_BY_REALTIME' }).toString(),
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ text: '你好，世界' }),
 }).then(r => r.json()).then(console.log)
 ```
 
-Expected: 返回 `errorCode: 0` 且 `translateResult` 里能看到 `"Hello, world"` 之类的正确译文。如果 `errorCode` 非 0（有道接口加了签名校验），停下来告知用户，不要继续凑合往下实现——需要重新调研接口参数（可能要加 `sign`/`salt`/`ts` 参数，做法在之前搜索到的逆向文章里有说明）。
+Expected: 返回 `{ translation: "Hello, world" }` 之类的正确译文（措辞可能与示例不完全一致，只要语义正确即可）。如果报错，停下来告知用户，不要继续凑合往下实现。
 
 停掉 dev server。
 
@@ -241,8 +308,8 @@ Expected: 返回 `errorCode: 0` 且 `translateResult` 里能看到 `"Hello, worl
 
 ```bash
 cd /Users/lixiaofei05/Desktop/ms
-git add notes-app/vite.config.ts notes-app/src/utils/translate.ts notes-app/src/utils/translate.test.ts
-git commit -m "feat: 新增有道翻译接口封装与dev代理转发"
+git add notes-app/src/utils/translate.ts notes-app/src/utils/translate.test.ts
+git commit -m "feat: 新增翻译服务封装(调用Ducc网关)"
 ```
 
 ## Task 3: `markdown.ts` — 注入段落翻译按钮与文本提取
