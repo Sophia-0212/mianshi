@@ -1,18 +1,28 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
+import mermaid from 'mermaid'
 import { renderMarkdown } from '../utils/markdown'
 import { extractToc, type TocItem } from '../utils/toc'
+import { translateText } from '../utils/translate'
 import Toc from './Toc.vue'
 import MobileToc from './MobileToc.vue'
+
+mermaid.initialize({ startOnLoad: false })
 
 const props = defineProps<{ filePath: string }>()
 
 const html = ref('')
 const toc = ref<TocItem[]>([])
 const error = ref<string | null>(null)
+const content = ref<HTMLElement | null>(null)
+
+// 仅由点击处理函数以命令式方式读取，不参与渲染，故不使用 ref
+let paraTexts: string[] = []
+let currentFilePath = ''
 
 async function load(filePath: string) {
   error.value = null
+  currentFilePath = filePath
   try {
     const res = await fetch('/' + filePath.split('/').map(encodeURIComponent).join('/'), {
       headers: { 'X-Notes-Fetch': '1' },
@@ -20,18 +30,86 @@ async function load(filePath: string) {
     if (!res.ok) throw new Error(`文件不存在: ${filePath}`)
     const source = await res.text()
     toc.value = extractToc(source)
-    html.value = await renderMarkdown(source)
+    const rendered = await renderMarkdown(source)
+    html.value = rendered.html
+    paraTexts = rendered.paraTexts
+    await nextTick()
+    if (content.value) {
+      const blocks = content.value.querySelectorAll<HTMLElement>('.mermaid')
+      if (blocks.length) await mermaid.run({ nodes: blocks })
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
 }
 
 watch(() => props.filePath, load, { immediate: true })
+
+// djb2 风格哈希：用于笔记内容修改后让旧缓存自然失效
+function hashText(text: string): string {
+  let hash = 5381
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 33) ^ text.charCodeAt(i)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function cacheKey(filePath: string, paraIndex: number, text: string): string {
+  return `translate:${filePath}:${paraIndex}:${hashText(text)}`
+}
+
+function findParaElement(button: HTMLElement): HTMLElement | null {
+  return button.closest('p, li, blockquote')
+}
+
+async function handleContentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  const button = target.closest('.translate-btn') as HTMLButtonElement | null
+  if (!button) return
+
+  const paraIndexAttr = button.dataset.paraIndex
+  if (paraIndexAttr === undefined) return
+  const paraIndex = Number(paraIndexAttr)
+  const text = paraTexts[paraIndex]
+  if (!text) return
+
+  const paraEl = findParaElement(button)
+  if (!paraEl) return
+
+  const existing = paraEl.nextElementSibling
+  if (existing?.classList.contains('translate-result') && existing.getAttribute('data-para-index') === paraIndexAttr) {
+    existing.classList.toggle('hidden')
+    return
+  }
+
+  button.classList.remove('translate-error')
+  button.classList.add('translate-loading')
+
+  try {
+    const key = cacheKey(currentFilePath, paraIndex, text)
+    let translated = localStorage.getItem(key)
+    if (!translated) {
+      translated = await translateText(text)
+      localStorage.setItem(key, translated)
+    }
+
+    const resultEl = document.createElement('div')
+    resultEl.className = 'translate-result'
+    resultEl.setAttribute('data-para-index', paraIndexAttr)
+    resultEl.textContent = translated
+    paraEl.insertAdjacentElement('afterend', resultEl)
+  } catch (e) {
+    button.classList.add('translate-error')
+    console.warn('[translate] 段落翻译失败:', e)
+  } finally {
+    button.classList.remove('translate-loading')
+  }
+}
 </script>
 
 <template>
   <div class="markdown-page">
-    <article v-if="!error" class="content" v-html="html" />
+    <article v-if="!error" ref="content" class="content" v-html="html" @click="handleContentClick" />
     <p v-else class="error">{{ error }}</p>
     <Toc :items="toc" />
     <MobileToc :items="toc" />
@@ -165,5 +243,46 @@ watch(() => props.filePath, load, { immediate: true })
     overflow-x: auto;
     white-space: nowrap;
   }
+}
+
+.content :deep(.translate-btn) {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  font-size: 0.85em;
+  opacity: 0.35;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1;
+}
+.content :deep(.translate-btn:hover) {
+  opacity: 0.9;
+}
+.content :deep(.translate-btn.translate-loading) {
+  opacity: 0.6;
+  animation: translate-pulse 1s ease-in-out infinite;
+}
+.content :deep(.translate-btn.translate-error) {
+  opacity: 1;
+  filter: hue-rotate(-40deg) saturate(3);
+}
+@keyframes translate-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+.content :deep(.translate-result) {
+  margin: -8px 0 14px;
+  padding: 6px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--sidebar-hover);
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.92em;
+  line-height: 1.6;
+  border-radius: 0 4px 4px 0;
+}
+.content :deep(.translate-result.hidden) {
+  display: none;
 }
 </style>
