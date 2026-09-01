@@ -3,25 +3,25 @@ import { renderMarkdown } from './markdown'
 
 describe('renderMarkdown', () => {
   it('渲染标题为对应 heading 标签', async () => {
-    const html = await renderMarkdown('# 标题\n\n正文内容')
+    const { html } = await renderMarkdown('# 标题\n\n正文内容')
     expect(html).toContain('<h1')
     expect(html).toContain('标题')
     expect(html).toContain('正文内容')
   })
 
   it('代码块被 shiki 处理为带语法高亮的 pre/code', async () => {
-    const html = await renderMarkdown('```js\nconst a = 1\n```')
+    const { html } = await renderMarkdown('```js\nconst a = 1\n```')
     expect(html).toContain('<pre')
     expect(html).toContain('shiki')
   })
 
   it('空字符串输入不报错，且不残留 shiki 占位符', async () => {
-    const html = await renderMarkdown('')
+    const { html } = await renderMarkdown('')
     expect(html).not.toContain('shiki-placeholder')
   })
 
   it('不含代码块的纯文本渲染正常，不受占位符逻辑影响', async () => {
-    const html = await renderMarkdown('这是一段纯文本，没有代码块。')
+    const { html } = await renderMarkdown('这是一段纯文本，没有代码块。')
     expect(html).toContain('这是一段纯文本，没有代码块。')
     expect(html).not.toContain('shiki-placeholder')
     expect(html).not.toContain('<pre')
@@ -38,7 +38,7 @@ describe('renderMarkdown', () => {
       '```',
     ].join('\n')
 
-    const html = await renderMarkdown(source)
+    const { html } = await renderMarkdown(source)
 
     expect(html).not.toContain('shiki-placeholder')
 
@@ -63,15 +63,54 @@ describe('renderMarkdown', () => {
   })
 
   it('未知语言标识符触发降级路径，仍产出 <pre 而不抛错', async () => {
-    const html = await renderMarkdown('```notalang\nfoo\n```')
+    const { html } = await renderMarkdown('```notalang\nfoo\n```')
     expect(html).toContain('<pre')
     expect(html).toContain('foo')
     expect(html).not.toContain('shiki-placeholder')
   })
 
   it('h1~h3 标题被注入与 extractToc 一致的 id', async () => {
-    const html = await renderMarkdown('# 标题A\n\n## 标题B')
+    const { html } = await renderMarkdown('# 标题A\n\n## 标题B')
     expect(html).toContain('<h1 id="heading-0">')
     expect(html).toContain('<h2 id="heading-1">')
+  })
+})
+
+describe('renderMarkdown 段落翻译按钮', () => {
+  it('为每个 p 标签注入翻译按钮，序号从0递增', async () => {
+    const { html } = await renderMarkdown('第一段。\n\n第二段。')
+    expect(html).toContain('data-para-index="0"')
+    expect(html).toContain('data-para-index="1"')
+  })
+
+  it('paraTexts 按序号对应各段纯文本，且不包含按钮标记', async () => {
+    const { paraTexts } = await renderMarkdown('第一段。\n\n第二段。')
+    expect(paraTexts[0]).toBe('第一段。')
+    expect(paraTexts[1]).toBe('第二段。')
+  })
+
+  it('li 和 blockquote 也会被注入翻译按钮', async () => {
+    const { html, paraTexts } = await renderMarkdown('- 列表项一\n- 列表项二\n\n> 引用内容')
+    expect(html).toContain('data-para-index="0"')
+    expect(html).toContain('data-para-index="1"')
+    expect(html).toContain('data-para-index="2"')
+    expect(paraTexts).toEqual(['列表项一', '列表项二', '引用内容'])
+  })
+
+  it('标题不会被注入翻译按钮', async () => {
+    const { html } = await renderMarkdown('# 标题\n\n正文段落')
+    const h1Match = /<h1[^>]*>.*?<\/h1>/s.exec(html)
+    expect(h1Match).not.toBeNull()
+    expect(h1Match![0]).not.toContain('translate-btn')
+  })
+
+  it('代码块不会被注入翻译按钮', async () => {
+    const { html } = await renderMarkdown('```js\nconst a = 1\n```')
+    expect(html).not.toContain('translate-btn')
+  })
+
+  it('空文档 paraTexts 为空数组', async () => {
+    const { paraTexts } = await renderMarkdown('')
+    expect(paraTexts).toEqual([])
   })
 })
