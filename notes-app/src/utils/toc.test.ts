@@ -21,4 +21,28 @@ describe('extractToc', () => {
   it('空文档返回空数组', () => {
     expect(extractToc('')).toEqual([])
   })
+
+  it('忽略围栏代码块内看起来像标题的行', () => {
+    const source = [
+      '# 真实标题一',
+      '',
+      '```markdown',
+      '# 代码块里的假标题',
+      '## 也是假标题',
+      '```',
+      '',
+      '## 真实标题二',
+    ].join('\n')
+    const toc = extractToc(source)
+    expect(toc).toEqual([
+      { level: 1, text: '真实标题一', id: 'heading-0' },
+      { level: 2, text: '真实标题二', id: 'heading-1' },
+    ])
+  })
+
+  it('忽略 ~~~ 围栏代码块内看起来像标题的行', () => {
+    const source = ['# 真实标题', '', '~~~', '# 假标题', '~~~'].join('\n')
+    const toc = extractToc(source)
+    expect(toc).toEqual([{ level: 1, text: '真实标题', id: 'heading-0' }])
+  })
 })

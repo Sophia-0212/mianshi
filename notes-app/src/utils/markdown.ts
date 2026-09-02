@@ -34,7 +34,7 @@ export async function renderMarkdown(source: string): Promise<RenderedMarkdown> 
     try {
       highlighted = await codeToHtml(block.code, {
         lang: block.lang,
-        theme: 'github-light',
+        theme: 'github-dark',
       })
     } catch (err) {
       // 未知语言标识符时降级为纯文本，保证渲染不整体失败
@@ -44,7 +44,7 @@ export async function renderMarkdown(source: string): Promise<RenderedMarkdown> 
       )
       highlighted = await codeToHtml(block.code, {
         lang: 'text',
-        theme: 'github-light',
+        theme: 'github-dark',
       })
     }
     html = html.replace(`<div class="shiki-placeholder" data-key="${key}"></div>`, highlighted)
