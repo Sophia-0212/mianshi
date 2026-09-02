@@ -7,7 +7,7 @@ defineOptions({ name: 'TreeNode' })
 
 const props = defineProps<{ node: MdTreeNode; depth?: number }>()
 const route = useRoute()
-const open = ref(true)
+const open = ref(false)
 const depth = computed(() => props.depth ?? 0)
 
 function toPath(p: string): string {

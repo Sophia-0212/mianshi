@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import mermaid from 'mermaid'
 import { renderMarkdown } from '../utils/markdown'
 import { extractToc, type TocItem } from '../utils/toc'
@@ -10,6 +11,7 @@ import MobileToc from './MobileToc.vue'
 mermaid.initialize({ startOnLoad: false })
 
 const props = defineProps<{ filePath: string }>()
+const router = useRouter()
 
 const html = ref('')
 const toc = ref<TocItem[]>([])
@@ -62,8 +64,50 @@ function findParaElement(button: HTMLElement): HTMLElement | null {
   return button.closest('p, li, blockquote')
 }
 
+// 正文里 [文字](./xxx.md) 这类相对链接渲染成 <a href="./xxx.md">，浏览器默认会
+// 当成整页导航去请求 dev server（拿到 SPA fallback 的 index.html，不是目标笔记）。
+// 这里拦截点击，把 href 相对 currentFilePath 所在目录解析成仓库根相对路径，
+// 交给 vue-router 走 SPA 路由，效果等同侧边栏 RouterLink 跳转。
+// 外部链接（http/https/mailto等）和站内锚点（#xxx）不拦截，保持浏览器原生行为。
+function handleMdLinkClick(event: MouseEvent, link: HTMLAnchorElement): boolean {
+  const href = link.getAttribute('href')
+  if (!href || /^([a-z]+:|#)/i.test(href)) return false
+
+  const baseDir = currentFilePath.split('/').slice(0, -1).join('/')
+  const resolved = resolveRelativePath(baseDir, href)
+  if (!resolved) return false
+
+  event.preventDefault()
+  router.push('/' + resolved.split('/').map(encodeURIComponent).join('/'))
+  return true
+}
+
+// 用 '/' 分段模拟路径解析（不依赖 Node path 模块，浏览器端运行）：
+// 空段和 '.' 忽略，'..' 弹出上一段，其余段追加。
+function resolveRelativePath(baseDir: string, relHref: string): string | null {
+  const [pathPart] = relHref.split(/[?#]/)
+  const decodedPath = decodeURIComponent(pathPart)
+  const isAbsolute = decodedPath.startsWith('/')
+  const segments = (isAbsolute ? [] : baseDir.split('/')).concat(decodedPath.split('/'))
+
+  const stack: string[] = []
+  for (const seg of segments) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') {
+      if (stack.length === 0) return null
+      stack.pop()
+    } else {
+      stack.push(seg)
+    }
+  }
+  return stack.join('/')
+}
+
 async function handleContentClick(event: MouseEvent) {
   const target = event.target as HTMLElement
+  const link = target.closest('a') as HTMLAnchorElement | null
+  if (link && handleMdLinkClick(event, link)) return
+
   const button = target.closest('.translate-btn') as HTMLButtonElement | null
   if (!button) return
 
@@ -187,10 +231,16 @@ async function handleContentClick(event: MouseEvent) {
   font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 0.9em;
 }
-.content :deep(p code) {
+/* 行内代码（反引号包裹）默认继承等宽字体的 white-space 行为，遇到长文件名/
+   一行多个 code 片段时不会换行，会把容器撑宽。这里显式允许在字符间换行，
+   避免溢出；pre 内部的 code（代码块）不受影响，因为选择器不匹配 pre code。 */
+.content :deep(p code),
+.content :deep(li code) {
   padding: 2px 5px;
   border-radius: 4px;
   background: var(--sidebar-hover);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .content :deep(img) {
   max-width: 100%;
