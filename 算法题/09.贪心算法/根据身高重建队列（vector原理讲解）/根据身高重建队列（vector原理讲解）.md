@@ -58,7 +58,8 @@ if __name__ == "__main__":
     result = reconstructQueue(arg0)
     expected = [[1, 0]]
     print("用例 3: 期望=", expected, "实际=", result)
-    assert result == expected```
+    assert result == expected
+```
 
 ## Go
 
@@ -126,16 +127,18 @@ func main() {
         if err != nil { panic(err) }
         fmt.Println("用例 3: 期望=[[1, 0]] 实际=", string(data))
     }
-}```
+}
+```
 
 ## C++
 
 ### LeetCode 写法与原有示例
 
 ```cpp
+// 依赖说明：vector：C++ STL 动态数组。
+
 vector<vector<int>> result;
-result.insert(result.begin() + k, person); // 插入到第k位，之后所有元素向后搬移
-```
+result.insert(result.begin() + k, person); // 插入到第k位，之后所有元素向后搬移```
 
 ### 面试普通函数写法（可直接运行）
 
@@ -227,5 +230,6 @@ int main() {
         cout << "\n";
     }
     return 0;
-}```
+}
+```
 

@@ -35,7 +35,8 @@ class Solution:
     # 方法：rightRotate；按题目要求处理输入并返回结果，核心算法见方法体。
     def rightRotate(self, s: str, k: int) -> str:
         k %= len(s)  # 防止 k 大于字符串长度导致切片异常
-        return s[-k:] + s[:-k] if k else s  # 后k位拼到前面；k=0时切片s[-0:]会出错，需特判```
+        return s[-k:] + s[:-k] if k else s  # 后k位拼到前面；k=0时切片s[-0:]会出错，需特判
+```
 
 
 手写实现（面试考察点：还原三步反转法。Python字符串不可变，转list模拟原地操作）：
@@ -60,7 +61,8 @@ class Solution:
         while left < right:  # 344题双指针反转模板
             arr[left], arr[right] = arr[right], arr[left]
             left += 1
-            right -= 1```
+            right -= 1
+```
 
 ### 面试普通函数写法（可直接运行）
 
@@ -116,7 +118,8 @@ if __name__ == "__main__":
     result = rightRotate(arg0, arg1)
     expected = 'a'
     print("用例 3: 期望=", expected, "实际=", result)
-    assert result == expected```
+    assert result == expected
+```
 
 ## Go
 
@@ -210,13 +213,16 @@ func main() {
         if err != nil { panic(err) }
         fmt.Println("用例 3: 期望=\"a\" 实际=", string(data))
     }
-}```
+}
+```
 
 ## C++
 
 ### LeetCode 写法与原有示例
 
 ```cpp
+// 依赖说明：string：C++ STL 字符串类型。
+
 class Solution {
 public:
     // 方法：rightRotate；按题目要求处理输入并返回结果，核心算法见方法体。
@@ -227,8 +233,7 @@ public:
         reverse(s.begin() + k, s.end());    // 第三步：反转后n-k位，恢复出A
         return s;  // 最终结果为 B + A，即右旋k位后的字符串
     }
-};
-```
+};```
 
 ### 面试普通函数写法（可直接运行）
 
@@ -318,7 +323,8 @@ int main() {
         cout << "\n";
     }
     return 0;
-}```
+}
+```
 
 ## 总结
 

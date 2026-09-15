@@ -31,7 +31,8 @@ import re
 class Solution:
     # 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
     def replaceNumber(self, s: str) -> str:
-        return re.sub(r'\d', 'number', s)  # 正则匹配每个数字字符并替换为 "number"```
+        return re.sub(r'\d', 'number', s)  # 正则匹配每个数字字符并替换为 "number"
+```
 
 
 手写实现（面试考察点：还原原地扩容双指针填充技巧。注意 Python 字符串不可变，这里用 list 模拟"原地"过程，重点是体现思想而非真正节省内存）：
@@ -60,7 +61,8 @@ class Solution:
                 arr[new_index] = arr[old_index]  # 非数字字符直接搬移
                 new_index -= 1
             old_index -= 1
-        return ''.join(arr)```
+        return ''.join(arr)
+```
 
 ### 面试普通函数写法（可直接运行）
 
@@ -117,7 +119,8 @@ if __name__ == "__main__":
     result = replaceNumber(arg0)
     expected = 'numbernumber'
     print("用例 3: 期望=", expected, "实际=", result)
-    assert result == expected```
+    assert result == expected
+```
 
 ## Go
 
@@ -216,13 +219,16 @@ func main() {
         if err != nil { panic(err) }
         fmt.Println("用例 3: 期望=\"numbernumber\" 实际=", string(data))
     }
-}```
+}
+```
 
 ## C++
 
 ### LeetCode 写法与原有示例
 
 ```cpp
+// 依赖说明：string：C++ STL 字符串类型。
+
 class Solution {
 public:
     // 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
@@ -249,8 +255,7 @@ public:
         }
         return s;
     }
-};
-```
+};```
 
 ### 面试普通函数写法（可直接运行）
 
@@ -353,7 +358,8 @@ int main() {
         cout << "\n";
     }
     return 0;
-}```
+}
+```
 
 ## 总结
 
