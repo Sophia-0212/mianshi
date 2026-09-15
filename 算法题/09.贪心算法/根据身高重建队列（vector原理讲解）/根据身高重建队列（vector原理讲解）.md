@@ -1,54 +1,231 @@
 # 根据身高重建队列（vector原理讲解）
 
-做 LeetCode 406 题"根据身高重建队列"的时候，我发现多数题解都会用到 C++ `vector` 的 `insert(pos, value)` 操作——按身高从高到矮排好序后，依次把每个人插入到结果队列的第 k 个位置。这个操作看起来挺简单，但背后涉及的时间复杂度分析，还有跟链表实现的对比，是一个很容易被忽略、但值得深挖的实现细节。这篇我单独把这部分原理讲清楚。
+按身高降序、同高 k 升序处理，将每个人插入下标 k。
 
-## vector::insert 的时间复杂度
+| 容器 | 定位第 k 位 | 插入 | 总计 |
+|---|---|---|---|
+| vector | O(1) | 搬移后续元素 O(n) | 单次 O(n)，全部 O(n²) |
+| 链表 | O(n) | 已定位后重连 O(1) | 单次 O(n)，全部 O(n²) |
 
-`vector` 底层是一段连续内存的数组。数组的核心特点是什么呢？"随机访问 O(1)、中间插入代价高"。你想啊，当我们调用 `vec.insert(vec.begin() + k, value)` 在下标 k 的位置插入一个新元素时，vector 必须先给这个新元素腾出空间，也就是把下标 k 及之后的所有元素依次往后搬一位。如果当前 vector 有 n 个元素，插入位置在最前面（k=0）的话，需要搬移的元素个数就是 n，这是最坏情况；要是插入位置在末尾，那几乎不用搬移（对应 `push_back`，均摊 O(1)）。所以单次 `insert` 的时间复杂度是 O(n)，这个 n 是插入点之后需要搬移的元素个数。
+两者存储均 O(n)。vector 内存连续，搬移通常缓存友好；链表不能消除按位置查找成本。需降低整体时间时，可用树状数组／线段树定位空位，达到 O(n log n)。
 
-放到 406 题的场景里看看：我们要对 n 个人依次执行插入操作，每次插入最坏都要搬移 O(n) 个元素，n 次插入的搬移代价叠加起来，总时间复杂度就退化到 O(n²) 了。这是这道题用 vector 实现时没法回避的代价。
+## Python
+
+### LeetCode 写法与原有示例
+
+
+
+### 面试普通函数写法（可直接运行）
+
+保存为 `main.py`，执行 `python3 main.py`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
+
+```python
+from __future__ import annotations
+from collections import deque, Counter, defaultdict
+from typing import Optional, List
+
+# 依赖说明：Python 内置 future 特性：annotations 让类型标注延迟解析。；Python 标准库 collections：deque 是双端队列，Counter 是计数器，defaultdict 是带默认值的字典。；Python 标准库 typing：Optional、List 等只用于类型标注。
+
+# 普通函数：保留题目的核心算法，不依赖 Solution 或在线判题平台。
+# 方法：reconstructQueue；按题目要求处理输入并返回结果，核心算法见方法体。
+def reconstructQueue(people: list[list[int]]) -> list[list[int]]:
+    # 身高降序；身高相同时 k 升序
+    people.sort(key=lambda p: (-p[0], p[1]))
+
+    result = []
+    for p in people:
+        result.insert(p[1], p)  # 插入到下标为 k 的位置
+    return result
+
+
+if __name__ == "__main__":
+    # 用例 1：输入 ([[7, 0], [4, 4], [7, 1], [5, 0], [6, 1], [5, 2]],)；期望 [[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]]。
+    arg0 = [[7, 0], [4, 4], [7, 1], [5, 0], [6, 1], [5, 2]]
+    result = reconstructQueue(arg0)
+    expected = [[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]]
+    print("用例 1: 期望=", expected, "实际=", result)
+    assert result == expected
+
+    # 用例 2：输入 ([[6, 0], [5, 0], [4, 0]],)；期望 [[4, 0], [5, 0], [6, 0]]。
+    arg0 = [[6, 0], [5, 0], [4, 0]]
+    result = reconstructQueue(arg0)
+    expected = [[4, 0], [5, 0], [6, 0]]
+    print("用例 2: 期望=", expected, "实际=", result)
+    assert result == expected
+
+    # 用例 3：输入 ([[1, 0]],)；期望 [[1, 0]]。
+    arg0 = [[1, 0]]
+    result = reconstructQueue(arg0)
+    expected = [[1, 0]]
+    print("用例 3: 期望=", expected, "实际=", result)
+    assert result == expected```
+
+## Go
+
+### LeetCode 写法与原有示例
+
+
+
+### 面试普通函数写法（可直接运行）
+
+保存为 `main.go`，执行 `go run main.go`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
+
+```go
+// 依赖说明：Go 标准库 encoding/json：JSON 编码和解码。；Go 标准库 fmt：格式化输出和输入。；Go 标准库 sort：排序切片。
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "sort"
+)
+
+// 普通函数和题目中的核心算法。
+// 方法：reconstructQueue；按题目要求处理输入并返回结果，核心算法见方法体。
+func reconstructQueue(people [][]int) [][]int {
+    // 身高降序；身高相同时 k 升序
+    sort.Slice(people, func(i, j int) bool {
+        if people[i][0] == people[j][0] {
+            return people[i][1] < people[j][1]
+        }
+        return people[i][0] > people[j][0]
+    })
+
+    result := make([][]int, 0, len(people))
+    for _, p := range people {
+        k := p[1]
+        result = append(result, nil)
+        copy(result[k+1:], result[k:]) // 后面元素整体后移一位
+        result[k] = p                  // 插入到下标为 k 的位置
+    }
+    return result
+}
+
+func main() {
+    // 用例 1：输入 ([[7, 0], [4, 4], [7, 1], [5, 0], [6, 1], [5, 2]],)；期望 [[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]]。
+    {
+        arg0 := [][]int{[]int{7, 0}, []int{4, 4}, []int{7, 1}, []int{5, 0}, []int{6, 1}, []int{5, 2}}
+        result := reconstructQueue(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 1: 期望=[[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]] 实际=", string(data))
+    }
+    // 用例 2：输入 ([[6, 0], [5, 0], [4, 0]],)；期望 [[4, 0], [5, 0], [6, 0]]。
+    {
+        arg0 := [][]int{[]int{6, 0}, []int{5, 0}, []int{4, 0}}
+        result := reconstructQueue(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 2: 期望=[[4, 0], [5, 0], [6, 0]] 实际=", string(data))
+    }
+    // 用例 3：输入 ([[1, 0]],)；期望 [[1, 0]]。
+    {
+        arg0 := [][]int{[]int{1, 0}}
+        result := reconstructQueue(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 3: 期望=[[1, 0]] 实际=", string(data))
+    }
+}```
+
+## C++
+
+### LeetCode 写法与原有示例
 
 ```cpp
 vector<vector<int>> result;
 result.insert(result.begin() + k, person); // 插入到第k位，之后所有元素向后搬移
 ```
 
-## 为什么 O(n²) 在这道题里依然可以接受
+### 面试普通函数写法（可直接运行）
 
-理论上 O(n²) 听起来不够优雅，但放到 406 题的实际约束下，这个代价是可以接受的，原因有两点。
+保存为 `main.cpp`，执行 `c++ -std=c++17 main.cpp -o main && ./main`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
 
-第一是数据规模。这类题目的输入规模通常不会特别大，一般是几百到几千的量级，n² 在这个范围内（比如 n=1000 时是一百万次基本操作）仍然能在毫秒级跑完，远没有碰到性能瓶颈。
+```cpp
+#include <algorithm>
+#include <array>
+#include <climits>
+#include <cmath>
+#include <deque>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <numeric>
+#include <optional>
+#include <queue>
+#include <set>
+#include <stack>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+// 依赖说明：C++ STL algorithm：sort、max、min 等通用算法。；C++ STL array：定长数组。；C++ 标准库 climits：整数边界常量。；C++ 标准库 cmath：数学函数。；C++ STL deque：双端队列。；C++ STL functional：function 等函数对象工具。；C++ 标准库 iostream：控制台输入输出。；C++ STL map：有序键值映射。；C++ STL numeric：数值算法。；C++17 STL optional：表示可能为空的值。；C++ STL queue：队列和 priority_queue。；C++ STL set：有序集合。；C++ STL stack：栈。；C++ STL string：字符串。；C++ STL unordered_map：哈希映射。；C++ STL unordered_set：哈希集合。；C++ STL utility：pair 等通用工具。；C++ STL vector：动态数组。
 
-第二是 vector 连续内存带来的 cache 命中率优势。你想，虽然 insert 要做元素搬移，但这个搬移操作本质上是一次连续内存块的整体移动（编译器和标准库实现通常会用 `memmove` 这类批量拷贝原语），CPU 在处理连续内存的读写时，缓存预取（prefetch）和缓存行（cache line）利用率非常高，硬件层面对这种"顺序搬移一大块内存"的场景做了充分优化。所以尽管理论上要搬移 O(n) 个元素，实际执行速度往往比看起来更快，一定程度上弥补了理论复杂度上的劣势。
+using namespace std;
 
-## 和链表实现的对比
+// 打印标量和数组，便于直接比较实际结果与期望结果。
+template<class T> void show(const T& value) { cout << boolalpha << value; }
+void show(const string& value) { cout << '"' << value << '"'; }
+void show(char value) { cout << '"' << value << '"'; }
+template<class T> void show(const optional<T>& value) {
+    if (value) show(*value); else cout << "null";
+}
+template<class T> void show(const vector<T>& values) {
+    cout << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i) cout << ", ";
+        show(values[i]);
+    }
+    cout << "]";
+}
 
-有人可能会想，既然 vector 插入这么"贵"，用链表实现是不是能拿到更好的复杂度？这里得仔细拆解一下"链表插入到第 k 位"这个操作到底包含哪几步。
+namespace interview {
 
-链表插入元素本身确实是 O(1) 的操作：只需要把新节点的指针指向后继节点，再把前驱节点的指针指向新节点，不用搬移任何其他元素的数据。但问题在哪儿呢？链表不支持随机访问，不能像数组那样通过下标直接算出内存地址（`base + k * size`）跳转到目标位置。要"找到"链表的第 k 个位置，只能从头节点开始，一步一步顺着指针往后走 k 步，这个查找过程本身就是 O(n)。
+// 普通函数与辅助函数声明。
+vector<vector<int>> reconstructQueue(vector<vector<int>>& people);
 
-所以严格来看，链表实现"插入到第 k 位"这个完整操作的总时间复杂度是：O(n) 查找 + O(1) 插入 = O(n)。而 vector 对应的操作是：O(1) 定位（下标直接计算地址）+ O(n) 搬移 = O(n)。两者渐进时间复杂度完全一样，都是 O(n)，大 O 意义上打了个平手，谁也没有理论上的优势。
+vector<vector<int>> reconstructQueue(vector<vector<int>>& people) {
+        // 身高降序；身高相同时 k 升序
+        sort(people.begin(), people.end(), [](const vector<int>& a, const vector<int>& b) {
+            if (a[0] == b[0]) return a[1] < b[1];
+            return a[0] > b[0];
+        });
 
-## 实际性能权衡：为什么 vector 在这道题里更常见
+        vector<vector<int>> result;
+        for (auto& p : people) {
+            result.insert(result.begin() + p[1], p); // 插入到下标为 k 的位置
+        }
+        return result;
+    }
 
-既然理论复杂度相同，为什么大多数题解还是选 vector 而不是链表呢？这背后是常数因子和硬件特性的差异，实践中往往才是决定真实运行速度的关键。
+}
 
-第一，vector 的搬移是连续内存的批量操作，硬件对这种模式有很好的优化，一次内存拷贝指令就能处理一大片数据，cache 局部性极好；而链表的查找过程是逐个跳转指针，每一步都要访问一个可能不在同一块内存区域的节点——如果链表节点是通过多次 `new`（或者语言层面的堆分配）陆续创建的，这些节点在物理内存中的位置往往是分散的，逐个跳转指针很容易频繁触发 cache miss，每次 cache miss 都要等着从主存重新加载数据，这个延迟比一次连续内存搬移昂贵得多。
+int main() {
+    // 用例 1：输入 ([[7, 0], [4, 4], [7, 1], [5, 0], [6, 1], [5, 2]],)；期望 [[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]]。
+    {
+        vector<vector<int>> arg0 = {{7, 0}, {4, 4}, {7, 1}, {5, 0}, {6, 1}, {5, 2}};
+        auto result = interview::reconstructQueue(arg0);
+        cout << "用例 1: 期望=[[5, 0], [7, 0], [5, 2], [6, 1], [4, 4], [7, 1]] 实际=";
+        show(result);
+        cout << "\n";
+    }
+    // 用例 2：输入 ([[6, 0], [5, 0], [4, 0]],)；期望 [[4, 0], [5, 0], [6, 0]]。
+    {
+        vector<vector<int>> arg0 = {{6, 0}, {5, 0}, {4, 0}};
+        auto result = interview::reconstructQueue(arg0);
+        cout << "用例 2: 期望=[[4, 0], [5, 0], [6, 0]] 实际=";
+        show(result);
+        cout << "\n";
+    }
+    // 用例 3：输入 ([[1, 0]],)；期望 [[1, 0]]。
+    {
+        vector<vector<int>> arg0 = {{1, 0}};
+        auto result = interview::reconstructQueue(arg0);
+        cout << "用例 3: 期望=[[1, 0]] 实际=";
+        show(result);
+        cout << "\n";
+    }
+    return 0;
+}```
 
-第二，链表节点除了存数据本身，还需要额外的指针字段（单向至少一个 next 指针），这部分开销进一步降低了内存的有效利用率和 cache 效率，数据密度不如 vector 紧凑。
-
-所以在 406 题这种数据规模不大、又要频繁做"插入到指定位置"的场景下，直接用 vector 的 `insert` 反而是更实用、代码也更简单的选择。链表理论上"插入本身是 O(1)"这个优势，在这道题里因为查找环节的存在（而且查找环节还伴随着更差的 cache 表现）很难真正体现出来，甚至可能因为大量的指针跳转开销而比 vector 更慢。
-
-## 复杂度对比小结
-
-| 实现方式 | 定位/查找第k位 | 插入本身 | 单次插入总复杂度 | 实际表现 |
-|---|---|---|---|---|
-| vector::insert | O(1)（下标直接算地址） | O(n)（搬移后续元素） | O(n) | 连续内存搬移，cache命中率高，实际较快 |
-| 链表插入 | O(n)（从头遍历查找） | O(1)（只改指针） | O(n) | 逐个跳指针，易触发cache miss，实际未必更快 |
-
-## 总结
-
-- vector 的 `insert(pos, value)` 单次最坏是 O(n)，因为要把插入点之后的所有元素往后搬一位；n 次插入叠加起来会退化到 O(n²)，但在 406 题的常见数据规模下这个代价是可以接受的。
-- 链表插入到第 k 位这个操作，把"查找"和"插入"两步合起来看，总复杂度同样是 O(n)（O(n) 查找 + O(1) 插入），跟 vector 的渐进复杂度打了个平手，理论上并没有更优。
-- 实际性能上 vector 往往更快，因为连续内存搬移是硬件友好的批量操作，cache 命中率高；链表逐个跳指针容易造成 cache miss，而且节点额外的指针字段还降低了内存利用率。
-- 这也提醒我们，分析算法不能只看渐进复杂度（大 O），常数因子和硬件缓存特性在中小规模数据下往往才是决定实际运行速度的关键因素。

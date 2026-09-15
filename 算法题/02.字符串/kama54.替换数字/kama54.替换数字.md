@@ -12,30 +12,220 @@
 
 ## 思路
 
-这题的核心考点是**不用额外空间的原地扩容双指针技巧**，属于"代码随想录"体系里字符串填充类题目的经典通用方法。表面上看，把 `1` 换成 `number` 是个"变长"操作，直觉上很难在原数组里原地完成——但你想啊，只要提前算好扩容后需要的总长度，再"从后往前"填充，就可以做到不需要额外数组。
+- 扩容双指针：每个数字多占 5 位，先扩容，再从后向前填充；数字写入 `number`，其余原样写入，避免覆盖未读数据。时间 O(n)；可复用存储时辅助空间 O(1)，Python/Go 分配结果需 O(n)。
+- 正则替换：将数字匹配项替换为 `number`。时间 O(n)，空间 O(n)。
 
-具体分两步：
 
-**第一步：计算扩容后的长度。** 遍历一次字符串，统计数字字符的个数 `count`。每个数字字符会从 1 个字符变成 6 个字符（`"number"` 长度为 6），所以扩容后总长度就是原长度加上 `count * 5`（每个数字多出 5 个字符）。
 
-**第二步：从后往前填充。** 这一步才是真正的难点和考点。如果按直觉从前往后填充，会出现一个问题：你把下标 0 的数字换成 `"number"` 之后，原本下标 1 及之后的字符还没处理完，但它们的位置已经被新写入的 `"number"` 覆盖了——数据就这么丢了。
+## Python
 
-解决方法是**双指针，从后往前**：设 `oldIndex` 指向原字符串的最后一个字符位置，`newIndex` 指向扩容后数组的最后一个字符位置。两个指针同时从后往前移动：
+### LeetCode 写法与原有示例
 
-- 如果 `s[oldIndex]` 不是数字，直接把它复制到 `s[newIndex]`，两个指针各左移一位。
-- 如果 `s[oldIndex]` 是数字，就把 `newIndex` 位置往前的 6 个字符依次填成 `'r','e','b','m','u','n'`（也就是倒着写 `"number"`），`newIndex` 左移 6 位，`oldIndex` 左移 1 位。
+标准库一行解（用正则或简单的字符判断+替换）：
 
-为什么这样就不会覆盖丢数据呢？因为 `newIndex` 永远大于等于 `oldIndex`（扩容后位置只会更靠后或相等），从后往前填充可以保证：每次写入 `newIndex` 位置时，这个位置上原来的旧数据早就已经被读取和处理过了（因为处理顺序是从后往前，后面的位置先处理完），不会出现"还没读就被覆盖"的问题。这是原地扩容类问题的通用解决范式，其他"字符串填充/合并"题目（比如 Java 面试常考的"给定两个长度不同的有序数组原地合并"）也是同样的思路。
+```python
+import re
 
-复杂度分析：两次遍历（一次统计长度，一次填充），时间复杂度 O(n)；除了存储扩容后结果的数组本身，没有使用额外的辅助数组，额外空间复杂度 O(1)（如果把结果数组也算在内则是 O(n)，但这是必须的输出空间，不算"额外"空间）。
+# 依赖说明：Python 标准库 re：提供正则表达式匹配。
 
-## 代码
+class Solution:
+    # 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+    def replaceNumber(self, s: str) -> str:
+        return re.sub(r'\d', 'number', s)  # 正则匹配每个数字字符并替换为 "number"```
 
-### C++
+
+手写实现（面试考察点：还原原地扩容双指针填充技巧。注意 Python 字符串不可变，这里用 list 模拟"原地"过程，重点是体现思想而非真正节省内存）：
+
+```python
+# 依赖说明：len：Python 内置函数：返回容器中元素的数量。；sum：Python 内置函数：计算可迭代对象元素的总和。
+
+# 依赖说明：len：Python 内置函数：返回容器中元素的数量。
+
+class Solution:
+    # 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+    def replaceNumber(self, s: str) -> str:
+        arr = list(s)
+        count = sum(1 for ch in arr if ch.isdigit())  # 统计数字字符个数
+        old_size = len(arr)
+        new_size = old_size + count * 5  # 每个数字多占5个字符
+        arr.extend(['\0'] * (count * 5))  # 扩容到新长度（模拟C++的resize）
+
+        old_index, new_index = old_size - 1, new_size - 1
+        while old_index >= 0:  # 双指针从后往前填充，避免覆盖未处理的数据
+            if arr[old_index].isdigit():
+                for ch in reversed('number'):  # 倒着写入 "number" 的每个字符
+                    arr[new_index] = ch
+                    new_index -= 1
+            else:
+                arr[new_index] = arr[old_index]  # 非数字字符直接搬移
+                new_index -= 1
+            old_index -= 1
+        return ''.join(arr)```
+
+### 面试普通函数写法（可直接运行）
+
+保存为 `main.py`，执行 `python3 main.py`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
+
+```python
+from __future__ import annotations
+from collections import deque, Counter, defaultdict
+from typing import Optional, List
+
+# 依赖说明：Python 内置 future 特性：annotations 让类型标注延迟解析。；Python 标准库 collections：deque 是双端队列，Counter 是计数器，defaultdict 是带默认值的字典。；Python 标准库 typing：Optional、List 等只用于类型标注。；len：Python 内置函数：返回容器中元素的数量。；sum：Python 内置函数：计算可迭代对象元素的总和。
+
+# 依赖说明：Python 内置 future 特性：annotations 让类型标注延迟解析。；Python 标准库 collections：deque 是双端队列，Counter 是计数器，defaultdict 是带默认值的字典。；Python 标准库 typing：Optional、List 等只用于类型标注。；len：Python 内置函数：返回容器中元素的数量。
+
+# 普通函数：保留题目的核心算法，不依赖 Solution 或在线判题平台。
+# 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+def replaceNumber(s: str) -> str:
+    arr = list(s)
+    count = sum(1 for ch in arr if ch.isdigit())  # 统计数字字符个数
+    old_size = len(arr)
+    new_size = old_size + count * 5  # 每个数字多占5个字符
+    arr.extend(['\0'] * (count * 5))  # 扩容到新长度（模拟C++的resize）
+
+    old_index, new_index = old_size - 1, new_size - 1
+    while old_index >= 0:  # 双指针从后往前填充，避免覆盖未处理的数据
+        if arr[old_index].isdigit():
+            for ch in reversed('number'):  # 倒着写入 "number" 的每个字符
+                arr[new_index] = ch
+                new_index -= 1
+        else:
+            arr[new_index] = arr[old_index]  # 非数字字符直接搬移
+            new_index -= 1
+        old_index -= 1
+    return ''.join(arr)
+
+
+if __name__ == "__main__":
+    # 用例 1：输入 ('a1b2',)；期望 'anumberbnumber'。
+    arg0 = 'a1b2'
+    result = replaceNumber(arg0)
+    expected = 'anumberbnumber'
+    print("用例 1: 期望=", expected, "实际=", result)
+    assert result == expected
+
+    # 用例 2：输入 ('abc',)；期望 'abc'。
+    arg0 = 'abc'
+    result = replaceNumber(arg0)
+    expected = 'abc'
+    print("用例 2: 期望=", expected, "实际=", result)
+    assert result == expected
+
+    # 用例 3：输入 ('12',)；期望 'numbernumber'。
+    arg0 = '12'
+    result = replaceNumber(arg0)
+    expected = 'numbernumber'
+    print("用例 3: 期望=", expected, "实际=", result)
+    assert result == expected```
+
+## Go
+
+### LeetCode 写法与原有示例
+
+```go
+// 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+func replaceNumber(s string) string {
+    count := 0
+    for _, ch := range s {
+        if ch >= '0' && ch <= '9' {
+            count++ // 统计数字字符个数
+        }
+    }
+    oldSize := len(s)
+    newSize := oldSize + count*5 // 每个数字多占5个字符
+    res := make([]byte, newSize)
+
+    oldIndex, newIndex := oldSize-1, newSize-1
+    for oldIndex >= 0 { // 双指针从后往前填充
+        if s[oldIndex] >= '0' && s[oldIndex] <= '9' {
+            copy(res[newIndex-5:newIndex+1], "number") // 倒序区间正好对应正序的"number"
+            newIndex -= 6
+        } else {
+            res[newIndex] = s[oldIndex] // 非数字字符直接搬移
+            newIndex--
+        }
+        oldIndex--
+    }
+    return string(res)
+}
+```
+
+### 面试普通函数写法（可直接运行）
+
+保存为 `main.go`，执行 `go run main.go`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
+
+```go
+// 依赖说明：Go 标准库 encoding/json：JSON 编码和解码。；Go 标准库 fmt：格式化输出和输入。
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+)
+
+// 普通函数和题目中的核心算法。
+// 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+func replaceNumber(s string) string {
+    count := 0
+    for _, ch := range s {
+        if ch >= '0' && ch <= '9' {
+            count++ // 统计数字字符个数
+        }
+    }
+    oldSize := len(s)
+    newSize := oldSize + count*5 // 每个数字多占5个字符
+    res := make([]byte, newSize)
+
+    oldIndex, newIndex := oldSize-1, newSize-1
+    for oldIndex >= 0 { // 双指针从后往前填充
+        if s[oldIndex] >= '0' && s[oldIndex] <= '9' {
+            copy(res[newIndex-5:newIndex+1], "number") // 倒序区间正好对应正序的"number"
+            newIndex -= 6
+        } else {
+            res[newIndex] = s[oldIndex] // 非数字字符直接搬移
+            newIndex--
+        }
+        oldIndex--
+    }
+    return string(res)
+}
+
+func main() {
+    // 用例 1：输入 ('a1b2',)；期望 'anumberbnumber'。
+    {
+        arg0 := "a1b2"
+        result := replaceNumber(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 1: 期望=\"anumberbnumber\" 实际=", string(data))
+    }
+    // 用例 2：输入 ('abc',)；期望 'abc'。
+    {
+        arg0 := "abc"
+        result := replaceNumber(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 2: 期望=\"abc\" 实际=", string(data))
+    }
+    // 用例 3：输入 ('12',)；期望 'numbernumber'。
+    {
+        arg0 := "12"
+        result := replaceNumber(arg0)
+        data, err := json.Marshal(result)
+        if err != nil { panic(err) }
+        fmt.Println("用例 3: 期望=\"numbernumber\" 实际=", string(data))
+    }
+}```
+
+## C++
+
+### LeetCode 写法与原有示例
 
 ```cpp
 class Solution {
 public:
+    // 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
     string replaceNumber(string s) {
         int count = 0;  // 统计数字字符个数
         int oldSize = s.size();
@@ -62,101 +252,108 @@ public:
 };
 ```
 
-### Java
+### 面试普通函数写法（可直接运行）
 
-```java
-class Solution {
-    public String replaceNumber(String s) {
+保存为 `main.cpp`，执行 `c++ -std=c++17 main.cpp -o main && ./main`。下面是完整独立程序，包含 3 组真实输入，并打印期望结果和实际结果。
+
+```cpp
+#include <algorithm>
+#include <array>
+#include <climits>
+#include <cmath>
+#include <deque>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <numeric>
+#include <optional>
+#include <queue>
+#include <set>
+#include <stack>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+// 依赖说明：C++ STL algorithm：sort、max、min 等通用算法。；C++ STL array：定长数组。；C++ 标准库 climits：整数边界常量。；C++ 标准库 cmath：数学函数。；C++ STL deque：双端队列。；C++ STL functional：function 等函数对象工具。；C++ 标准库 iostream：控制台输入输出。；C++ STL map：有序键值映射。；C++ STL numeric：数值算法。；C++17 STL optional：表示可能为空的值。；C++ STL queue：队列和 priority_queue。；C++ STL set：有序集合。；C++ STL stack：栈。；C++ STL string：字符串。；C++ STL unordered_map：哈希映射。；C++ STL unordered_set：哈希集合。；C++ STL utility：pair 等通用工具。；C++ STL vector：动态数组。
+
+using namespace std;
+
+// 打印标量和数组，便于直接比较实际结果与期望结果。
+template<class T> void show(const T& value) { cout << boolalpha << value; }
+void show(const string& value) { cout << '"' << value << '"'; }
+void show(char value) { cout << '"' << value << '"'; }
+template<class T> void show(const optional<T>& value) {
+    if (value) show(*value); else cout << "null";
+}
+template<class T> void show(const vector<T>& values) {
+    cout << "[";
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i) cout << ", ";
+        show(values[i]);
+    }
+    cout << "]";
+}
+
+namespace interview {
+
+// 普通函数与辅助函数声明。
+string replaceNumber(string s);
+
+// 方法：replaceNumber；按题目要求处理输入并返回结果，核心算法见方法体。
+    string replaceNumber(string s) {
         int count = 0;  // 统计数字字符个数
-        int oldSize = s.length();
+        int oldSize = s.size();
         for (int i = 0; i < oldSize; i++) {
-            if (Character.isDigit(s.charAt(i))) count++;
+            if (s[i] >= '0' && s[i] <= '9') count++;
         }
-        char[] res = new char[oldSize + count * 5];  // 扩容后的数组
-        int oldIndex = oldSize - 1;
-        int newIndex = res.length - 1;
-        while (oldIndex >= 0) {  // 双指针从后往前填充
-            if (Character.isDigit(s.charAt(oldIndex))) {
-                res[newIndex--] = 'r';  // 倒着写入 "number"
-                res[newIndex--] = 'e';
-                res[newIndex--] = 'b';
-                res[newIndex--] = 'm';
-                res[newIndex--] = 'u';
-                res[newIndex--] = 'n';
+        s.resize(oldSize + count * 5);  // 每个数字多占5个字符，扩容到新长度
+        int newSize = s.size();
+        // 双指针从后往前填充，避免正序覆盖导致数据丢失
+        for (int oldIndex = oldSize - 1, newIndex = newSize - 1; oldIndex >= 0; oldIndex--) {
+            if (s[oldIndex] >= '0' && s[oldIndex] <= '9') {
+                s[newIndex--] = 'r';  // 倒着写入 "number"
+                s[newIndex--] = 'e';
+                s[newIndex--] = 'b';
+                s[newIndex--] = 'm';
+                s[newIndex--] = 'u';
+                s[newIndex--] = 'n';
             } else {
-                res[newIndex--] = s.charAt(oldIndex);  // 非数字字符直接搬移
+                s[newIndex--] = s[oldIndex];  // 非数字字符直接搬移到新位置
             }
-            oldIndex--;
         }
-        return new String(res);
+        return s;
     }
+
 }
-```
 
-### Python
-
-标准库一行解（用正则或简单的字符判断+替换）：
-
-```python
-import re
-
-class Solution:
-    def replaceNumber(self, s: str) -> str:
-        return re.sub(r'\d', 'number', s)  # 正则匹配每个数字字符并替换为 "number"
-```
-
-手写实现（面试考察点：还原原地扩容双指针填充技巧。注意 Python 字符串不可变，这里用 list 模拟"原地"过程，重点是体现思想而非真正节省内存）：
-
-```python
-class Solution:
-    def replaceNumber(self, s: str) -> str:
-        arr = list(s)
-        count = sum(1 for ch in arr if ch.isdigit())  # 统计数字字符个数
-        old_size = len(arr)
-        new_size = old_size + count * 5  # 每个数字多占5个字符
-        arr.extend(['\0'] * (count * 5))  # 扩容到新长度（模拟C++的resize）
-
-        old_index, new_index = old_size - 1, new_size - 1
-        while old_index >= 0:  # 双指针从后往前填充，避免覆盖未处理的数据
-            if arr[old_index].isdigit():
-                for ch in reversed('number'):  # 倒着写入 "number" 的每个字符
-                    arr[new_index] = ch
-                    new_index -= 1
-            else:
-                arr[new_index] = arr[old_index]  # 非数字字符直接搬移
-                new_index -= 1
-            old_index -= 1
-        return ''.join(arr)
-```
-
-### Go
-
-```go
-func replaceNumber(s string) string {
-    count := 0
-    for _, ch := range s {
-        if ch >= '0' && ch <= '9' {
-            count++ // 统计数字字符个数
-        }
+int main() {
+    // 用例 1：输入 ('a1b2',)；期望 'anumberbnumber'。
+    {
+        string arg0 = "a1b2";
+        auto result = interview::replaceNumber(arg0);
+        cout << "用例 1: 期望=\"anumberbnumber\" 实际=";
+        show(result);
+        cout << "\n";
     }
-    oldSize := len(s)
-    newSize := oldSize + count*5 // 每个数字多占5个字符
-    res := make([]byte, newSize)
-
-    oldIndex, newIndex := oldSize-1, newSize-1
-    for oldIndex >= 0 { // 双指针从后往前填充
-        if s[oldIndex] >= '0' && s[oldIndex] <= '9' {
-            copy(res[newIndex-5:newIndex+1], "number") // 倒序区间正好对应正序的"number"
-            newIndex -= 6
-        } else {
-            res[newIndex] = s[oldIndex] // 非数字字符直接搬移
-            newIndex--
-        }
-        oldIndex--
+    // 用例 2：输入 ('abc',)；期望 'abc'。
+    {
+        string arg0 = "abc";
+        auto result = interview::replaceNumber(arg0);
+        cout << "用例 2: 期望=\"abc\" 实际=";
+        show(result);
+        cout << "\n";
     }
-    return string(res)
-}
-```
+    // 用例 3：输入 ('12',)；期望 'numbernumber'。
+    {
+        string arg0 = "12";
+        auto result = interview::replaceNumber(arg0);
+        cout << "用例 3: 期望=\"numbernumber\" 实际=";
+        show(result);
+        cout << "\n";
+    }
+    return 0;
+}```
 
 ## 总结
 
