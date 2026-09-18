@@ -71,8 +71,8 @@ describe('renderMarkdown', () => {
 
   it('h1~h3 标题被注入与 extractToc 一致的 id', async () => {
     const { html } = await renderMarkdown('# 标题A\n\n## 标题B')
-    expect(html).toContain('<h1 id="heading-0">')
-    expect(html).toContain('<h2 id="heading-1">')
+    expect(html).toContain('<h1 id="标题a">')
+    expect(html).toContain('<h2 id="标题b">')
   })
 })
 
@@ -112,5 +112,16 @@ describe('renderMarkdown 段落翻译按钮', () => {
   it('空文档 paraTexts 为空数组', async () => {
     const { paraTexts } = await renderMarkdown('')
     expect(paraTexts).toEqual([])
+  })
+})
+
+
+describe('正文标题锚点', () => {
+  it('中文文内链接指向真实标题 id，重复标题和深层标题也有锚点', async () => {
+    const { html } = await renderMarkdown('[缓存击穿](#缓存击穿)\n\n### 缓存击穿\n\n### 缓存击穿\n\n#### **SDS**')
+    expect(html).toContain('href="#%E7%BC%93%E5%AD%98%E5%87%BB%E7%A9%BF"')
+    expect(html).toContain('<h3 id="缓存击穿">缓存击穿</h3>')
+    expect(html).toContain('<h3 id="缓存击穿-1">缓存击穿</h3>')
+    expect(html).toContain('<h4 id="sds"><strong>SDS</strong></h4>')
   })
 })

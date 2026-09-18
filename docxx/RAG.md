@@ -8,7 +8,7 @@
 
 1. [整体架构](#1-整体架构)
 2. [文档解析与切块流水线](#2-文档解析与切块流水线)
-3. [Milvus 混合检索方案（Dense+Sparse+RRF）](#3-milvus-混合检索方案densesparsErrf)
+3. [Milvus 混合检索方案（Dense+Sparse+RRF）](#3-milvus-混合检索方案densesparserrf)
 4. [双进程批量入库流水线](#4-双进程批量入库流水线)
 5. [检索工具封装 + Agent 多轮对话](#5-检索工具封装--agent-多轮对话)
 6. [Graph1：简单工具调用型 RAG](#6-graph1简单工具调用型-rag)

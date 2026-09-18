@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import mermaid from 'mermaid'
 import { renderMarkdown } from '../utils/markdown'
 import { extractToc, type TocItem } from '../utils/toc'
 import { translateText } from '../utils/translate'
+import { decodeNoteHash, resolveNoteHref } from '../utils/note-links'
 import Toc from './Toc.vue'
 import MobileToc from './MobileToc.vue'
 
@@ -12,6 +13,7 @@ mermaid.initialize({ startOnLoad: false })
 
 const props = defineProps<{ filePath: string }>()
 const router = useRouter()
+const route = useRoute()
 
 const html = ref('')
 const toc = ref<TocItem[]>([])
@@ -21,31 +23,55 @@ const content = ref<HTMLElement | null>(null)
 // 仅由点击处理函数以命令式方式读取，不参与渲染，故不使用 ref
 let paraTexts: string[] = []
 let currentFilePath = ''
+let loadedFilePath = ''
+let loadVersion = 0
+
+function scrollToHash() {
+  if (loadedFilePath !== props.filePath || !route.hash) return
+  document.getElementById(decodeNoteHash(route.hash))?.scrollIntoView({ block: 'start' })
+}
 
 async function load(filePath: string) {
+  const version = ++loadVersion
   error.value = null
   currentFilePath = filePath
+  loadedFilePath = ''
+  html.value = ''
+  toc.value = []
   try {
     const res = await fetch('/' + filePath.split('/').map(encodeURIComponent).join('/'), {
       headers: { 'X-Notes-Fetch': '1' },
     })
     if (!res.ok) throw new Error(`文件不存在: ${filePath}`)
     const source = await res.text()
-    toc.value = extractToc(source)
     const rendered = await renderMarkdown(source)
+    if (version !== loadVersion) return
+    toc.value = extractToc(source)
     html.value = rendered.html
     paraTexts = rendered.paraTexts
     await nextTick()
+    if (version !== loadVersion) return
     if (content.value) {
+      // 让 Command/Ctrl 点击和中键打开的地址也包含正确文档路径与锚点。
+      for (const link of content.value.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+        const resolved = resolveNoteHref(filePath, link.getAttribute('href') ?? '')
+        if (resolved) link.setAttribute('href', resolved)
+      }
       const blocks = content.value.querySelectorAll<HTMLElement>('.mermaid')
       if (blocks.length) await mermaid.run({ nodes: blocks })
     }
+    if (version !== loadVersion) return
+    loadedFilePath = filePath
+    // 新标签、刷新和跨文档跳转时，必须等正文（含图表）渲染后再定位。
+    scrollToHash()
   } catch (e) {
+    if (version !== loadVersion) return
     error.value = e instanceof Error ? e.message : String(e)
   }
 }
 
 watch(() => props.filePath, load, { immediate: true })
+watch(() => route.hash, () => { void nextTick(scrollToHash) })
 
 // djb2 风格哈希：用于笔记内容修改后让旧缓存自然失效
 function hashText(text: string): string {
@@ -64,43 +90,16 @@ function findParaElement(button: HTMLElement): HTMLElement | null {
   return button.closest('p, li, blockquote')
 }
 
-// 正文里 [文字](./xxx.md) 这类相对链接渲染成 <a href="./xxx.md">，浏览器默认会
-// 当成整页导航去请求 dev server（拿到 SPA fallback 的 index.html，不是目标笔记）。
-// 这里拦截点击，把 href 相对 currentFilePath 所在目录解析成仓库根相对路径，
-// 交给 vue-router 走 SPA 路由，效果等同侧边栏 RouterLink 跳转。
-// 外部链接（http/https/mailto等）和站内锚点（#xxx）不拦截，保持浏览器原生行为。
+// 普通点击走站内路由；修饰键、新标签与下载保持浏览器原生行为。
 function handleMdLinkClick(event: MouseEvent, link: HTMLAnchorElement): boolean {
-  const href = link.getAttribute('href')
-  if (!href || /^([a-z]+:|#)/i.test(href)) return false
-
-  const baseDir = currentFilePath.split('/').slice(0, -1).join('/')
-  const resolved = resolveRelativePath(baseDir, href)
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+    || link.hasAttribute('download') || (link.target && link.target !== '_self')) return false
+  const resolved = resolveNoteHref(currentFilePath, link.getAttribute('href') ?? '')
   if (!resolved) return false
 
   event.preventDefault()
-  router.push('/' + resolved.split('/').map(encodeURIComponent).join('/'))
+  void router.push(resolved).then(() => nextTick(scrollToHash))
   return true
-}
-
-// 用 '/' 分段模拟路径解析（不依赖 Node path 模块，浏览器端运行）：
-// 空段和 '.' 忽略，'..' 弹出上一段，其余段追加。
-function resolveRelativePath(baseDir: string, relHref: string): string | null {
-  const [pathPart] = relHref.split(/[?#]/)
-  const decodedPath = decodeURIComponent(pathPart)
-  const isAbsolute = decodedPath.startsWith('/')
-  const segments = (isAbsolute ? [] : baseDir.split('/')).concat(decodedPath.split('/'))
-
-  const stack: string[] = []
-  for (const seg of segments) {
-    if (seg === '' || seg === '.') continue
-    if (seg === '..') {
-      if (stack.length === 0) return null
-      stack.pop()
-    } else {
-      stack.push(seg)
-    }
-  }
-  return stack.join('/')
 }
 
 async function handleContentClick(event: MouseEvent) {

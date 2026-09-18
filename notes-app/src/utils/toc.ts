@@ -1,33 +1,49 @@
+import MarkdownIt from 'markdown-it'
+import GithubSlugger from 'github-slugger'
+
 export interface TocItem {
   level: 1 | 2 | 3
   text: string
   id: string
 }
 
-export function extractToc(source: string): TocItem[] {
-  const lines = source.split('\n')
-  const toc: TocItem[] = []
-  let counter = 0
-  let inFence = false
+export interface HeadingItem {
+  level: 1 | 2 | 3 | 4 | 5 | 6
+  text: string
+  id: string
+}
 
-  for (const line of lines) {
-    const trimmed = line.trim()
+const parser = new MarkdownIt({ html: false, linkify: true })
+type Token = ReturnType<typeof parser.parse>[number]
 
-    // 跳过 ``` 或 ~~~ 围栏代码块内的所有行，避免代码块里写的 markdown 示例
-    // （比如 ```markdown 代码块内的 "# 标题"）被误判成真实标题
-    if (/^(```|~~~)/.test(trimmed)) {
-      inFence = !inFence
-      continue
-    }
-    if (inFence) continue
+function inlineText(tokens: Token[]): string {
+  return tokens.map(token => {
+    if (token.type === 'text' || token.type === 'code_inline') return token.content
+    if (token.type === 'image') return inlineText(token.children ?? []) || token.content
+    if (token.type === 'softbreak' || token.type === 'hardbreak') return ' '
+    return ''
+  }).join('')
+}
 
-    const match = /^(#{1,3})\s+(.+)$/.exec(trimmed)
-    if (!match) continue
-    const level = match[1].length as 1 | 2 | 3
-    const text = match[2].trim()
-    toc.push({ level, text, id: `heading-${counter}` })
-    counter++
+// 与正文渲染共用同一批标题 token；代码块、加粗、链接和重复标题均按 Markdown 语义处理。
+export function assignHeadingIds(tokens: Token[]): HeadingItem[] {
+  const slugger = new GithubSlugger()
+  const headings: HeadingItem[] = []
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]
+    if (token.type !== 'heading_open') continue
+    const text = inlineText(tokens[index + 1]?.children ?? []).trim()
+    const id = slugger.slug(text)
+    token.attrSet('id', id)
+    headings.push({ level: Number(token.tag.slice(1)) as HeadingItem['level'], text, id })
   }
+  return headings
+}
 
-  return toc
+export function extractHeadings(source: string): HeadingItem[] {
+  return assignHeadingIds(parser.parse(source, {}))
+}
+
+export function extractToc(source: string): TocItem[] {
+  return extractHeadings(source).filter((item): item is TocItem => item.level <= 3)
 }
